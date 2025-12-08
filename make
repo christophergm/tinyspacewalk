@@ -1,0 +1,1 @@
+tinygo flash -target=grandcentral-m4 ./main.go
