@@ -52,20 +52,27 @@ func main() {
 		}
 	}
 
-	// Create battery with default configuration
-	bat := battery.NewBattery(battery.FastBatteryConfig())
+	// Create five batteries with default configuration
+	batteries := make([]*battery.Battery, 5)
+	for i := 0; i < 5; i++ {
+		batteries[i] = battery.NewBattery(battery.FastBatteryConfig())
+	}
 
 	// Create mock input handlers for demonstration
-	chargedOverrideInput := panel.NewMockInputHandler()
-	drainingInput := panel.NewMockInputHandler()
+	chargedOverrideInputs := make([]panel.InputHandler, 5)
+	drainingInputs := make([]panel.InputHandler, 5)
+	for i := 0; i < 5; i++ {
+		chargedOverrideInputs[i] = panel.NewMockInputHandler()
+		drainingInputs[i] = panel.NewMockInputHandler()
+	}
 
 	// Create and configure the panel
 	panelConfig := panel.PanelConfig{
-		Battery:           bat,
-		LEDStrip:          ledStrip,
-		ChargedOverrideIn: chargedOverrideInput,
-		DrainingIn:        drainingInput,
-		UpdateRate:        50 * time.Millisecond,
+		Batteries:          batteries,
+		LEDStrip:           ledStrip,
+		ChargedOverrideIns: chargedOverrideInputs,
+		DrainingIns:        drainingInputs,
+		UpdateRate:         50 * time.Millisecond,
 	}
 	batteryPanel = panel.NewPanel(panelConfig)
 
@@ -78,12 +85,20 @@ func main() {
 		// Demo sequence - simulate input presses
 		time.Sleep(2 * time.Second)
 
-		// Set draining to true (simulate button press)
-		drainingInput.SetPressed(true)
+		// Set draining to true for all batteries (simulate button press)
+		for _, input := range drainingInputs {
+			if mockInput, ok := input.(*panel.MockInputHandler); ok {
+				mockInput.SetPressed(true)
+			}
+		}
 
 		time.Sleep(10 * time.Second)
 
-		drainingInput.SetPressed(false)
+		for _, input := range drainingInputs {
+			if mockInput, ok := input.(*panel.MockInputHandler); ok {
+				mockInput.SetPressed(false)
+			}
+		}
 	}
 
 	// Set charged override to true (simulate button press)
