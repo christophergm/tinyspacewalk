@@ -76,7 +76,7 @@ func main() {
 	for {
 
 		// Demo sequence - simulate input presses
-		time.Sleep(10 * time.Second)
+		time.Sleep(2 * time.Second)
 
 		// Set draining to true (simulate button press)
 		drainingInput.SetPressed(true)

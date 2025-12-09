@@ -3,6 +3,7 @@ package panel
 import (
 	"image/color"
 	"math"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -150,7 +151,7 @@ func (p *Panel) updateLEDDisplay(info battery.BatteryInfo) {
 	case battery.Charged:
 		p.displayCharged()
 	case battery.Disconnecting:
-		p.displayDisconnecting()
+		p.displayDisconnecting(info.BatteryLevel)
 	case battery.Draining:
 		p.displayDraining(info.BatteryLevel)
 	case battery.Dead:
@@ -167,18 +168,47 @@ func (p *Panel) displayCharged() {
 	p.ledStrip.SetAll(Green)
 }
 
-// displayDisconnecting shows flashing yellow
-func (p *Panel) displayDisconnecting() {
-	// Flash on/off every 0.5 seconds
-	if p.flashPhase < 0.5 {
-		p.ledStrip.SetAll(Yellow)
-	} else {
-		p.ledStrip.SetAll(Black)
+// displayDisconnecting shows green flickering out with random pixels turning yellow or off
+func (p *Panel) displayDisconnecting(batteryLevel float32) {
+	length := p.ledStrip.NumLEDs()
+	if length == 0 {
+		return
+	}
+
+	// Calculate how many pixels should be affected based on battery level
+	pixelsAffected := int(math.Ceil(float64(length) * float64(batteryLevel) / 100.0))
+	if pixelsAffected < 0 {
+		pixelsAffected = 0
+	}
+	if pixelsAffected > length {
+		pixelsAffected = length
+	}
+
+	// Start with all LEDs off
+	p.ledStrip.SetAll(Black)
+
+	// Use flash phase to control the amount of flickering (more flickering over time)
+	flickerIntensity := p.flashPhase // 0.0 to 1.0
+
+	// Only flicker LEDs up to the battery level
+	for i := 0; i < pixelsAffected; i++ {
+		// Random chance for each pixel to flicker based on intensity
+		if rand.Float64() < flickerIntensity*0.5 {
+			// Randomly choose between yellow or off
+			if rand.Float64() < 0.6 {
+				p.ledStrip.SetPixel(i, Yellow)
+			} else {
+				p.ledStrip.SetPixel(i, Black)
+			}
+		} else {
+			// Default to green when not flickering
+			p.ledStrip.SetPixel(i, Green)
+		}
 	}
 }
 
-// displayDraining shows red bar with decreasing lights and top two pixels pulsing
-func (p *Panel) displayDraining(batteryLevel int) {
+// displayDraining shows yellow bar getting smaller with pixels incrementally flickering out
+func (p *Panel) displayDraining(batteryLevel float32) {
 	length := p.ledStrip.NumLEDs()
 	if length == 0 {
 		return
@@ -187,44 +217,40 @@ func (p *Panel) displayDraining(batteryLevel int) {
 	// Clear all pixels first
 	p.ledStrip.SetAll(Black)
 
-	// Calculate how many pixels should be lit based on battery level
-	pixelsLit := int(math.Ceil(float64(length-2) * float64(batteryLevel) / 100.0))
+	// Calculate how many pixels should be solidly lit based on battery level
+	pixelsLit := int(math.Ceil(float64(length) * float64(batteryLevel) / 100.0))
 	if pixelsLit < 0 {
 		pixelsLit = 0
 	}
-	if pixelsLit > length-2 {
-		pixelsLit = length - 2
+	if pixelsLit > length {
+		pixelsLit = length
 	}
 
-	// Light up the bottom pixels as a red bar
+	// Light up the solid yellow bar
 	for i := 0; i < pixelsLit; i++ {
-		p.ledStrip.SetPixel(i, Red)
+		p.ledStrip.SetPixel(i, Yellow)
 	}
 
-	// Pulse the top two pixels
-	pulseBrightness := uint8(127 + 127*math.Sin(p.pulsePhase*2*math.Pi))
-	pulseColor := color.RGBA{R: pulseBrightness, G: 0, B: 0, A: 255}
-
-	if length >= 2 {
-		p.ledStrip.SetPixel(length-2, pulseColor)
-		p.ledStrip.SetPixel(length-1, pulseColor)
-	} else if length >= 1 {
-		p.ledStrip.SetPixel(length-1, pulseColor)
+	// Add flickering effect at the edge of the bar to simulate pixels dying
+	flickerZone := 3 // Number of pixels at the edge that can flicker
+	for i := pixelsLit; i < pixelsLit+flickerZone && i < length; i++ {
+		// Random chance for edge pixels to flicker yellow
+		if rand.Float64() < 0.3 {
+			p.ledStrip.SetPixel(i, Yellow)
+		}
 	}
 }
 
-// displayDead shows blinking red
+// displayDead shows pulsing red with variable intensity
 func (p *Panel) displayDead() {
-	// Blink on/off every 0.25 seconds (faster than disconnecting)
-	if math.Mod(p.flashPhase*2, 1.0) < 0.5 {
-		p.ledStrip.SetAll(Red)
-	} else {
-		p.ledStrip.SetAll(Black)
-	}
+	// Pulse the red with 1 second period (same as draining)
+	pulseBrightness := uint8(127 + 127*math.Sin(p.flashPhase*2*math.Pi))
+	pulseColor := color.RGBA{R: pulseBrightness, G: 0, B: 0, A: 255}
+	p.ledStrip.SetAll(pulseColor)
 }
 
 // displayCharging shows a charging animation
-func (p *Panel) displayCharging(batteryLevel int) {
+func (p *Panel) displayCharging(batteryLevel float32) {
 	length := p.ledStrip.NumLEDs()
 	if length == 0 {
 		return

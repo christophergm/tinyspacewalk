@@ -37,7 +37,7 @@ func (s SystemState) String() string {
 // BatteryInfo holds all current battery system properties
 type BatteryInfo struct {
 	State                          SystemState
-	BatteryLevel                   int
+	BatteryLevel                   float32
 	ChargedOverride                bool
 	IsDraining                     bool
 	DrainRate                      time.Duration
@@ -66,14 +66,14 @@ func DefaultBatteryConfig() Config {
 // FastBatteryConfig returns a configuration optimized for demonstrations and testing
 func FastBatteryConfig() Config {
 	return Config{
-		DrainRate:             5 * time.Second, // 2 minutes to fully drain
-		ChargeRate:            5 * time.Second, // 4 minutes to fully charge
-		DisconnectingDuration: 2 * time.Second, // 1 second in disconnecting state
+		DrainRate:             30 * time.Second, // 2 minutes to fully drain
+		ChargeRate:            10 * time.Second, // 4 minutes to fully charge
+		DisconnectingDuration: 1 * time.Second,  // 1 second in disconnecting state
 	}
 }
 
 // SlowBatteryConfig returns a configuration for realistic long-term simulation
-func SlowBatteryConfig() Config {
+func StandardBatteryConfig() Config {
 	return Config{
 		DrainRate:             200 * time.Minute, // 3.33 hours to fully drain
 		ChargeRate:            100 * time.Minute, // 100 minutes to fully charge
@@ -81,20 +81,11 @@ func SlowBatteryConfig() Config {
 	}
 }
 
-// PortableDeviceConfig returns a configuration simulating a portable device
-func PortableDeviceConfig() Config {
-	return Config{
-		DrainRate:             20 * time.Minute, // 20 minutes to fully drain
-		ChargeRate:            10 * time.Minute, // 10 minutes to fully charge
-		DisconnectingDuration: 3 * time.Second,  // 3 seconds in disconnecting state
-	}
-}
-
 // Battery represents a battery with state machine based on three inputs and time
 type Battery struct {
 	mu                    sync.RWMutex
 	state                 SystemState
-	batteryLevel          int           // 0-100 percentage
+	batteryLevel          float32       // 0-100 percentage
 	chargedOverride       bool          // Input 1
 	isDraining            bool          // Input 2
 	drainRate             time.Duration // Input 3: time to fully drain
@@ -147,7 +138,7 @@ func (b *Battery) SetChargedOverride(override bool) {
 
 	b.chargedOverride = override
 	if override {
-		b.batteryLevel = 100
+		b.batteryLevel = 100.0
 		b.setState(Charged)
 	}
 	// If turning off override, let the state machine determine next state on next tick
@@ -218,7 +209,7 @@ func (b *Battery) updateStateMachine() {
 
 	// Rule 1: ChargedOverride always forces Charged state with 100% battery
 	if b.chargedOverride {
-		b.batteryLevel = 100
+		b.batteryLevel = 100.0
 		b.setState(Charged)
 		return
 	}
@@ -246,10 +237,10 @@ func (b *Battery) updateStateMachine() {
 
 		if newLevel <= 0 {
 			// if in Draining and BatteryLevel reaches 0 then transition to Dead
-			b.batteryLevel = 0
+			b.batteryLevel = 0.0
 			b.setState(Dead)
 		} else {
-			b.batteryLevel = int(newLevel)
+			b.batteryLevel = float32(newLevel)
 
 			// if in Draining and isDraining is set to false then transition to Charging
 			if !b.isDraining {
@@ -271,10 +262,10 @@ func (b *Battery) updateStateMachine() {
 
 		if newLevel >= 100 {
 			// if in Charging and battery level reaches 100 then transition to Charged
-			b.batteryLevel = 100
+			b.batteryLevel = 100.0
 			b.setState(Charged)
 		} else {
-			b.batteryLevel = int(newLevel)
+			b.batteryLevel = float32(newLevel)
 
 			// If isDraining becomes true while charging, transition to Disconnecting
 			if b.isDraining {
@@ -306,9 +297,7 @@ func (b *Battery) GetInfo() BatteryInfo {
 	if b.state == Disconnecting {
 		elapsed := time.Since(b.disconnectingStartTime)
 		remaining := b.disconnectingDuration - elapsed
-		if remaining < 0 {
-			remaining = 0
-		}
+		remaining = max(remaining, 0)
 		info.DisconnectingDurationRemaining = remaining
 	}
 
