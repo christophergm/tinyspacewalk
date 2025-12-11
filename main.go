@@ -12,19 +12,17 @@ import (
 )
 
 var (
-	Red    = color.RGBA{25, 0, 0, 20}
-	Green  = color.RGBA{0, 25, 0, 20}
-	Blue   = color.RGBA{0, 0, 25, 20}
-	Yellow = color.RGBA{25, 25, 0, 20}
-)
-
-var (
-	neoPixel         peripheral.NeoPixel
-	boardYellowLight peripheral.BoardYellowLight
-	batteryPanel     *panel.Panel
+	Red    = color.RGBA{25, 0, 0, 255}
+	Green  = color.RGBA{0, 25, 0, 255}
+	Blue   = color.RGBA{0, 0, 25, 255}
+	Yellow = color.RGBA{25, 25, 0, 255}
+	Off    = color.RGBA{0, 0, 0, 255}
 )
 
 func main() {
+
+	var neoPixel peripheral.NeoPixel
+	var boardYellowLight peripheral.BoardYellowLight
 
 	pauseMilliseconds := 300
 
@@ -37,19 +35,13 @@ func main() {
 	boardYellowLight.Configure()
 	boardYellowLight.StartBlink()
 
-	neoPixel.SetColorAndPause(Green, pauseMilliseconds)
-
-	neoPixel.SetColorAndPause(Red, pauseMilliseconds)
-	neoPixel.SetColorAndPause(Yellow, pauseMilliseconds)
-	neoPixel.SetColorAndPause(Blue, pauseMilliseconds)
+	neoPixel.SetColorAndPause(Off, pauseMilliseconds)
 
 	// Initialize LED strip with new structure
 	numLEDs := 144
 	ledStrip := peripheral.NewColorLedStrip(numLEDs)
 	if err := ledStrip.Configure(); err != nil {
-		for {
-			neoPixel.SetRandomColorAndPause(pauseMilliseconds)
-		}
+		neoPixel.SetColorAndPause(Red, pauseMilliseconds)
 	}
 
 	// Create five batteries with default configuration
@@ -59,50 +51,33 @@ func main() {
 	}
 
 	// Create mock input handlers for demonstration
-	chargedOverrideInputs := make([]panel.InputHandler, 5)
-	drainingInputs := make([]panel.InputHandler, 5)
+	batteryResetButton := peripheral.NewMockButton()
+	mockBatteryConnects := make([]*peripheral.MockButton, 5)
 	for i := 0; i < 5; i++ {
-		chargedOverrideInputs[i] = panel.NewMockInputHandler()
-		drainingInputs[i] = panel.NewMockInputHandler()
+		mockBatteryConnects[i] = peripheral.NewMockButton()
+	}
+
+	// Convert mock buttons to ButtonReader interface for panel
+	batteryConnects := make([]peripheral.ButtonReader, 5)
+	for i := 0; i < 5; i++ {
+		batteryConnects[i] = mockBatteryConnects[i]
 	}
 
 	// Create and configure the panel
 	panelConfig := panel.PanelConfig{
 		Batteries:          batteries,
 		LEDStrip:           ledStrip,
-		ChargedOverrideIns: chargedOverrideInputs,
-		DrainingIns:        drainingInputs,
+		BatteryResetButton: batteryResetButton,
+		BatteryConnects:    batteryConnects,
 		UpdateRate:         50 * time.Millisecond,
 	}
-	batteryPanel = panel.NewPanel(panelConfig)
+	_ = panel.NewPanel(panelConfig)
 
-	// Panel will now monitor the hardware inputs and update battery state accordingly
-	// - Press button on D2 to force charged state (charged override)
-	// - Press button on D3 to start draining
-
-	for {
-
-		// Demo sequence - simulate input presses
-		time.Sleep(2 * time.Second)
-
-		// Set draining to true for all batteries (simulate button press)
-		for _, input := range drainingInputs {
-			if mockInput, ok := input.(*panel.MockInputHandler); ok {
-				mockInput.SetPressed(true)
-			}
-		}
-
-		time.Sleep(10 * time.Second)
-
-		for _, input := range drainingInputs {
-			if mockInput, ok := input.(*panel.MockInputHandler); ok {
-				mockInput.SetPressed(false)
-			}
-		}
+	if false {
+		go panel.DemoAllBatteries(mockBatteryConnects, neoPixel)
+	} else {
+		go panel.DemoRandomBatteries(batteryResetButton, mockBatteryConnects, neoPixel)
 	}
-
-	// Set charged override to true (simulate button press)
-	//chargedOverrideInput.SetPressed(true)
 
 	select {}
 }

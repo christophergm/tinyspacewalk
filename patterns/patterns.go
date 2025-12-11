@@ -32,9 +32,9 @@ type BatteryPattern struct {
 // NewBatteryPattern creates a new battery pattern with default values
 func NewBatteryPattern() *BatteryPattern {
 	config := battery.Config{
-		DrainRate:         10.0, // 10% per minute
-		ChargeRate:        5.0,  // 5% per minute
-		DisconnectingTime: 0.5,  // 30 seconds
+		DrainRate:             10.0,
+		ChargeRate:            5.0,
+		DisconnectingDuration: 10 * time.Second,
 	}
 	bat := battery.NewBattery(config)
 	bat.SetIsDraining(true) // Start draining
@@ -70,7 +70,7 @@ func (p *BatteryPattern) Start(strip *peripheral.ColorLedStrip, done <-chan stru
 			batteryInfo := p.Battery.GetInfo()
 
 			// Calculate how many panels to show as "active" based on battery level
-			activePanels := (batteryInfo.BatteryLevel * numPanels) / 100
+			activePanels := (batteryInfo.BatteryLevel * float32(numPanels)) / 100
 
 			// Choose panel color based on battery state
 			var panelColor color.RGBA

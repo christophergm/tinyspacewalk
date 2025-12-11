@@ -26,8 +26,9 @@ type Panel struct {
 	mu                 sync.RWMutex
 	batteries          []*battery.Battery
 	ledStrip           *peripheral.ColorLedStrip
-	chargedOverrideIns []InputHandler
-	drainingIns        []InputHandler
+	airLocktButton     peripheral.ButtonReader
+	batteryResetButton peripheral.ButtonReader
+	batteryConnects    []peripheral.ButtonReader
 
 	// LED allocation
 	batteryLEDCount int // LEDs per battery section
@@ -48,8 +49,9 @@ type Panel struct {
 type PanelConfig struct {
 	Batteries          []*battery.Battery
 	LEDStrip           *peripheral.ColorLedStrip
-	ChargedOverrideIns []InputHandler
-	DrainingIns        []InputHandler
+	AirLockButton      peripheral.ButtonReader
+	BatteryResetButton peripheral.ButtonReader
+	BatteryConnects    []peripheral.ButtonReader
 	UpdateRate         time.Duration // How often to update animations and check inputs
 }
 
@@ -69,8 +71,9 @@ func NewPanel(config PanelConfig) *Panel {
 	p := &Panel{
 		batteries:          config.Batteries,
 		ledStrip:           config.LEDStrip,
-		chargedOverrideIns: config.ChargedOverrideIns,
-		drainingIns:        config.DrainingIns,
+		batteryResetButton: config.BatteryResetButton,
+		batteryConnects:    config.BatteryConnects,
+		airLocktButton:     config.AirLockButton,
 		batteryLEDCount:    batteryLEDs,
 		spacingLEDs:        spacingLEDs,
 		stopAnimation:      make(chan struct{}),
@@ -126,12 +129,14 @@ func (p *Panel) update() {
 
 	// Check inputs and update all batteries
 	for i, bat := range p.batteries {
-		if i < len(p.chargedOverrideIns) && p.chargedOverrideIns[i] != nil {
-			bat.SetChargedOverride(p.chargedOverrideIns[i].IsPressed())
+		if p.batteryResetButton.IsPressed() {
+			bat.SetChargedOverride(true)
+			neoPixel := peripheral.NeoPixel{}
+			neoPixel.Configure()
+			neoPixel.SetColorAndPause(Red, 50)
+			continue
 		}
-		if i < len(p.drainingIns) && p.drainingIns[i] != nil {
-			bat.SetIsDraining(p.drainingIns[i].IsPressed())
-		}
+		bat.SetIsDraining(p.batteryConnects[i].IsPressed())
 	}
 
 	// Update animation phases
