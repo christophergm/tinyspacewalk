@@ -4,6 +4,8 @@ import (
 	"image/color"
 	"time"
 
+	"machine"
+
 	"golang.org/x/exp/rand"
 
 	"github.com/christophergm/tinyspacewalk/battery"
@@ -20,6 +22,10 @@ var (
 )
 
 func main() {
+	// Configuration - set to true to use real GPIO pins instead of demo mode
+	useRealPins := true
+	runDemoAllBatteries := false   // Only used when useRealPins is false
+	runDemoRandomBatteries := true // Only used when useRealPins is false
 
 	var neoPixel peripheral.NeoPixel
 	var boardYellowLight peripheral.BoardYellowLight
@@ -50,17 +56,41 @@ func main() {
 		batteries[i] = battery.NewBattery(battery.FastBatteryConfig())
 	}
 
-	// Create mock input handlers for demonstration
-	batteryResetButton := peripheral.NewMockButton()
-	mockBatteryConnects := make([]*peripheral.MockButton, 5)
-	for i := 0; i < 5; i++ {
-		mockBatteryConnects[i] = peripheral.NewMockButton()
-	}
+	var batteryResetButton peripheral.ButtonReader
+	var batteryConnects []peripheral.ButtonReader
+	var mockBatteryConnects []*peripheral.MockButton
+	var mockResetButton *peripheral.MockButton
 
-	// Convert mock buttons to ButtonReader interface for panel
-	batteryConnects := make([]peripheral.ButtonReader, 5)
-	for i := 0; i < 5; i++ {
-		batteryConnects[i] = mockBatteryConnects[i]
+	if useRealPins {
+		// Configure real GPIO pins D0-D5
+		// D0: Board reset button
+		resetButton := peripheral.NewButton(machine.D0, true) // inverted - pressed when low
+		resetButton.Configure()
+		batteryResetButton = resetButton
+
+		// D1-D5: Battery connect signals
+		batteryConnects = make([]peripheral.ButtonReader, 5)
+		pins := []machine.Pin{machine.D1, machine.D2, machine.D3, machine.D4, machine.D5}
+
+		for i, pin := range pins {
+			button := peripheral.NewButton(pin, true) // inverted - pressed when low
+			button.Configure()
+			batteryConnects[i] = button
+		}
+	} else {
+		// Create mock input handlers for demonstration
+		mockResetButton = peripheral.NewMockButton()
+		batteryResetButton = mockResetButton
+		mockBatteryConnects = make([]*peripheral.MockButton, 5)
+		for i := 0; i < 5; i++ {
+			mockBatteryConnects[i] = peripheral.NewMockButton()
+		}
+
+		// Convert mock buttons to ButtonReader interface for panel
+		batteryConnects = make([]peripheral.ButtonReader, 5)
+		for i := 0; i < 5; i++ {
+			batteryConnects[i] = mockBatteryConnects[i]
+		}
 	}
 
 	// Create and configure the panel
@@ -73,10 +103,13 @@ func main() {
 	}
 	_ = panel.NewPanel(panelConfig)
 
-	if false {
-		go panel.DemoAllBatteries(mockBatteryConnects, neoPixel)
-	} else {
-		go panel.DemoRandomBatteries(batteryResetButton, mockBatteryConnects, neoPixel)
+	// Only run demo sequences when using mock buttons
+	if !useRealPins {
+		if runDemoAllBatteries {
+			go panel.DemoAllBatteries(mockBatteryConnects, neoPixel)
+		} else if runDemoRandomBatteries {
+			go panel.DemoRandomBatteries(mockResetButton, mockBatteryConnects, neoPixel)
+		}
 	}
 
 	select {}
