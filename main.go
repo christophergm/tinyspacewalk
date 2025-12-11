@@ -64,16 +64,16 @@ func main() {
 	if useRealPins {
 		// Configure real GPIO pins D0-D5
 		// D0: Board reset button
-		resetButton := peripheral.NewButton(machine.D0, true) // inverted - pressed when low
+		resetButton := peripheral.NewButton(machine.D40, true) // inverted - pressed when low
 		resetButton.Configure()
 		batteryResetButton = resetButton
 
 		// D1-D5: Battery connect signals
 		batteryConnects = make([]peripheral.ButtonReader, 5)
-		pins := []machine.Pin{machine.D1, machine.D2, machine.D3, machine.D4, machine.D5}
+		pins := []machine.Pin{machine.D30, machine.D32, machine.D34, machine.D36, machine.D38}
 
 		for i, pin := range pins {
-			button := peripheral.NewButton(pin, true) // inverted - pressed when low
+			button := peripheral.NewButton(pin, false) // inverted - pressed when low
 			button.Configure()
 			batteryConnects[i] = button
 		}

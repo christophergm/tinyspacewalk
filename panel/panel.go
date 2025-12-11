@@ -129,13 +129,7 @@ func (p *Panel) update() {
 
 	// Check inputs and update all batteries
 	for i, bat := range p.batteries {
-		if p.batteryResetButton.IsPressed() {
-			bat.SetChargedOverride(true)
-			neoPixel := peripheral.NeoPixel{}
-			neoPixel.Configure()
-			neoPixel.SetColorAndPause(Red, 50)
-			continue
-		}
+		bat.SetChargedOverride(p.batteryResetButton.IsPressed())
 		bat.SetIsDraining(p.batteryConnects[i].IsPressed())
 	}
 
