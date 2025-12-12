@@ -1,6 +1,7 @@
 package panel
 
 import (
+	"context"
 	"image/color"
 	"math"
 	"math/rand"
@@ -43,6 +44,15 @@ type Panel struct {
 	flashPhase float64 // 0.0 to 1.0 for flash animations
 	pulsePhase float64 // 0.0 to 1.0 for pulse animations
 	lastUpdate time.Time
+
+	// Pre-allocated colors to avoid repeated allocations
+	tempColor    color.RGBA
+	pulseColor   color.RGBA
+	unknownColor color.RGBA
+
+	// Context for graceful shutdown
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // PanelConfig holds configuration for panel creation
@@ -68,6 +78,8 @@ func NewPanel(config PanelConfig) *Panel {
 	totalSpacing := spacingLEDs * (numBatteries - 1)
 	batteryLEDs := (totalLEDs - totalSpacing) / numBatteries
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	p := &Panel{
 		batteries:          config.Batteries,
 		ledStrip:           config.LEDStrip,
@@ -78,6 +90,12 @@ func NewPanel(config PanelConfig) *Panel {
 		spacingLEDs:        spacingLEDs,
 		stopAnimation:      make(chan struct{}),
 		lastUpdate:         time.Now(),
+		ctx:                ctx,
+		cancel:             cancel,
+		// Initialize pre-allocated color structs
+		tempColor:    color.RGBA{A: 255},
+		pulseColor:   color.RGBA{A: 255},
+		unknownColor: color.RGBA{A: 255},
 	}
 
 	p.start(config.UpdateRate)
@@ -86,6 +104,9 @@ func NewPanel(config PanelConfig) *Panel {
 
 // Start begins the panel's update loop
 func (p *Panel) start(updateRate time.Duration) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	if p.running {
 		return
 	}
@@ -94,11 +115,19 @@ func (p *Panel) start(updateRate time.Duration) {
 	p.animationTicker = time.NewTicker(updateRate)
 
 	go func() {
+		defer func() {
+			if p.animationTicker != nil {
+				p.animationTicker.Stop()
+			}
+		}()
+
 		for {
 			select {
 			case <-p.animationTicker.C:
 				p.update()
 			case <-p.stopAnimation:
+				return
+			case <-p.ctx.Done():
 				return
 			}
 		}
@@ -111,6 +140,7 @@ func (p *Panel) Stop() {
 	defer p.mu.Unlock()
 
 	if p.running {
+		p.cancel() // Cancel context first
 		close(p.stopAnimation)
 		if p.animationTicker != nil {
 			p.animationTicker.Stop()
@@ -123,6 +153,9 @@ func (p *Panel) Stop() {
 
 // update handles input checking, animation updates, and LED display
 func (p *Panel) update() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	now := time.Now()
 	deltaTime := now.Sub(p.lastUpdate).Seconds()
 	p.lastUpdate = now
@@ -151,17 +184,9 @@ func (p *Panel) update() {
 
 // updateAnimationPhases updates the timing for flash and pulse animations
 func (p *Panel) updateAnimationPhases(deltaTime float64) {
-	// Flash phase: completes a cycle every 1 second
-	p.flashPhase += deltaTime
-	if p.flashPhase >= 1.0 {
-		p.flashPhase -= 1.0
-	}
-
-	// Pulse phase: completes a cycle every 2 seconds (slower pulse)
-	p.pulsePhase += deltaTime * 0.5
-	if p.pulsePhase >= 1.0 {
-		p.pulsePhase -= 1.0
-	}
+	// Use math.Mod to prevent accumulation of floating point errors
+	p.flashPhase = math.Mod(p.flashPhase+deltaTime, 1.0)
+	p.pulsePhase = math.Mod(p.pulsePhase+deltaTime*0.5, 1.0)
 }
 
 // getBatteryStartLED returns the starting LED index for a battery section
@@ -191,13 +216,19 @@ func (p *Panel) updateBatterySection(batteryIndex int, info battery.BatteryInfo)
 
 // displayChargedSection shows green LEDs for a battery section
 func (p *Panel) displayChargedSection(startLED int) {
-	// Pulse the gree with 1 second period
+	// Pulse the green with 1 second period
 	// with a subtle pulse from 100% to 80%
 	maxBrightness := uint8(40)
 	pulseBrightness := uint8(float64(maxBrightness) * (0.9 + 0.1*math.Sin(p.flashPhase*2*math.Pi)))
-	pulseColor := color.RGBA{R: 0, G: pulseBrightness, B: 0, A: 255}
+
+	// Reuse pre-allocated color struct
+	p.pulseColor.R = 0
+	p.pulseColor.G = pulseBrightness
+	p.pulseColor.B = 0
+	// A is already set to 255 in initialization
+
 	for i := 0; i < p.batteryLEDCount; i++ {
-		p.ledStrip.SetPixel(startLED+i, pulseColor)
+		p.ledStrip.SetPixel(startLED+i, p.pulseColor)
 	}
 }
 
@@ -263,9 +294,15 @@ func (p *Panel) displayDeadSection(startLED int) {
 	// Pulse the red with 1 second period (same as draining)
 	maxBrightness := uint8(10)
 	pulseBrightness := uint8(float64(maxBrightness) * (0.5 + 0.5*math.Sin(p.flashPhase*2*math.Pi)))
-	pulseColor := color.RGBA{R: pulseBrightness, G: 0, B: 0, A: 255}
+
+	// Reuse pre-allocated color struct
+	p.pulseColor.R = pulseBrightness
+	p.pulseColor.G = 0
+	p.pulseColor.B = 0
+	// A is already set to 255 in initialization
+
 	for i := 0; i < p.batteryLEDCount; i++ {
-		p.ledStrip.SetPixel(startLED+i, pulseColor)
+		p.ledStrip.SetPixel(startLED+i, p.pulseColor)
 	}
 }
 
@@ -301,14 +338,23 @@ func (p *Panel) displayChargingSection(startLED int, batteryLevel float32) {
 func (p *Panel) displayUnknownSection(startLED int) {
 	// Slow pulse in blue to indicate unknown/error state
 	brightness := uint8(64 + 64*math.Sin(p.pulsePhase*2*math.Pi))
-	unknownColor := color.RGBA{R: 0, G: 0, B: brightness, A: 255}
+
+	// Reuse pre-allocated color struct
+	p.unknownColor.R = 0
+	p.unknownColor.G = 0
+	p.unknownColor.B = brightness
+	// A is already set to 255 in initialization
+
 	for i := 0; i < p.batteryLEDCount; i++ {
-		p.ledStrip.SetPixel(startLED+i, unknownColor)
+		p.ledStrip.SetPixel(startLED+i, p.unknownColor)
 	}
 }
 
 // GetBatteryInfo returns current battery information for a specific battery
 func (p *Panel) GetBatteryInfo(batteryIndex int) battery.BatteryInfo {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
 	if batteryIndex < 0 || batteryIndex >= len(p.batteries) {
 		// Return empty info for invalid index
 		return battery.BatteryInfo{}
@@ -318,9 +364,17 @@ func (p *Panel) GetBatteryInfo(batteryIndex int) battery.BatteryInfo {
 
 // GetAllBatteryInfo returns current battery information for all batteries
 func (p *Panel) GetAllBatteryInfo() []battery.BatteryInfo {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
 	infos := make([]battery.BatteryInfo, len(p.batteries))
 	for i, bat := range p.batteries {
 		infos[i] = bat.GetInfo()
 	}
 	return infos
+}
+
+// GetContext returns the panel's context for coordinating shutdown
+func (p *Panel) GetContext() context.Context {
+	return p.ctx
 }

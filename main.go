@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"image/color"
 	"time"
 
@@ -22,6 +23,10 @@ var (
 )
 
 func main() {
+	// Create context for graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// Configuration - set to true to use real GPIO pins instead of demo mode
 	useRealPins := true
 	runDemoAllBatteries := false   // Only used when useRealPins is false
@@ -32,7 +37,8 @@ func main() {
 
 	pauseMilliseconds := 300
 
-	rand.Seed(uint64(time.Now().UnixNano()))
+	// Use simpler seed to avoid overflow on microcontroller
+	rand.Seed(uint64(time.Now().Unix()))
 
 	neoPixel = peripheral.NeoPixel{}
 	neoPixel.Configure()
@@ -41,6 +47,11 @@ func main() {
 	boardYellowLight.Configure()
 	boardYellowLight.StartBlink()
 
+	// Cleanup function for board yellow light
+	defer func() {
+		boardYellowLight.StopBlink()
+	}()
+
 	neoPixel.SetColorAndPause(Off, pauseMilliseconds)
 
 	// Initialize LED strip with new structure
@@ -48,6 +59,7 @@ func main() {
 	ledStrip := peripheral.NewColorLedStrip(numLEDs)
 	if err := ledStrip.Configure(); err != nil {
 		neoPixel.SetColorAndPause(Red, pauseMilliseconds)
+		return // Exit on configuration error
 	}
 
 	// Create five batteries with default configuration
@@ -101,16 +113,28 @@ func main() {
 		BatteryConnects:    batteryConnects,
 		UpdateRate:         50 * time.Millisecond,
 	}
-	_ = panel.NewPanel(panelConfig)
+	mainPanel := panel.NewPanel(panelConfig)
+
+	// Ensure panel cleanup on exit
+	defer mainPanel.Stop()
 
 	// Only run demo sequences when using mock buttons
 	if !useRealPins {
 		if runDemoAllBatteries {
-			go panel.DemoAllBatteries(mockBatteryConnects, neoPixel)
+			mainPanel.StartDemoAllBatteries(neoPixel)
 		} else if runDemoRandomBatteries {
-			go panel.DemoRandomBatteries(mockResetButton, mockBatteryConnects, neoPixel)
+			mainPanel.StartDemoRandomBatteries(neoPixel)
 		}
 	}
 
-	select {}
+	// Run until context is cancelled or panel stops
+	select {
+	case <-ctx.Done():
+		// Context was cancelled
+	case <-mainPanel.GetContext().Done():
+		// Panel stopped itself
+		cancel()
+	}
+
+	// Cleanup already handled by defer statements
 }
