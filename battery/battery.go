@@ -66,9 +66,9 @@ func DefaultBatteryConfig() Config {
 // FastBatteryConfig returns a configuration optimized for demonstrations and testing
 func FastBatteryConfig() Config {
 	return Config{
-		DrainRate:             30 * time.Second, // 2 minutes to fully drain
-		ChargeRate:            10 * time.Second, // 4 minutes to fully charge
-		DisconnectingDuration: 1 * time.Second,  // 1 second in disconnecting state
+		DrainRate:             2 * 60 * time.Second, // 2 minutes to fully drain
+		ChargeRate:            30 * time.Second,     // 4 minutes to fully charge
+		DisconnectingDuration: 1 * time.Second,      // 1 second in disconnecting state
 	}
 }
 

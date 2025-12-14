@@ -34,6 +34,7 @@ type Panel struct {
 	// LED allocation
 	batteryLEDCount int // LEDs per battery section
 	spacingLEDs     int // LEDs between batteries
+	ledOffset       int // Offset to skip obscured LEDs at the start
 
 	// Animation state
 	animationTicker *time.Ticker
@@ -71,12 +72,16 @@ func NewPanel(config PanelConfig) *Panel {
 		config.UpdateRate = 50 * time.Millisecond // 20 FPS default
 	}
 
-	// Calculate LED allocation
+	// Calculate LED allocation - skip first 6 and last 6 LEDs
 	totalLEDs := config.LEDStrip.NumLEDs()
+	obscuredLEDs := 12 // 6 at top + 6 at bottom
+	usableLEDs := totalLEDs - obscuredLEDs
+	ledOffset := 6 // Skip first 6 LEDs
+
 	numBatteries := len(config.Batteries)
 	spacingLEDs := 4
 	totalSpacing := spacingLEDs * (numBatteries - 1)
-	batteryLEDs := (totalLEDs - totalSpacing) / numBatteries
+	batteryLEDs := (usableLEDs - totalSpacing) / numBatteries
 
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -88,6 +93,7 @@ func NewPanel(config PanelConfig) *Panel {
 		airLocktButton:     config.AirLockButton,
 		batteryLEDCount:    batteryLEDs,
 		spacingLEDs:        spacingLEDs,
+		ledOffset:          ledOffset,
 		stopAnimation:      make(chan struct{}),
 		lastUpdate:         time.Now(),
 		ctx:                ctx,
@@ -191,7 +197,7 @@ func (p *Panel) updateAnimationPhases(deltaTime float64) {
 
 // getBatteryStartLED returns the starting LED index for a battery section
 func (p *Panel) getBatteryStartLED(batteryIndex int) int {
-	return batteryIndex * (p.batteryLEDCount + p.spacingLEDs)
+	return p.ledOffset + batteryIndex*(p.batteryLEDCount+p.spacingLEDs)
 }
 
 // updateBatterySection updates the LED section for a specific battery
